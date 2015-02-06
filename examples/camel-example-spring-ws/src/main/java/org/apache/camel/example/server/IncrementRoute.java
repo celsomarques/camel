@@ -16,33 +16,33 @@
  */
 package org.apache.camel.example.server;
 
-import org.apache.camel.Exchange;
-import org.apache.camel.Processor;
 import org.apache.camel.builder.RouteBuilder;
+import org.apache.camel.builder.xml.Namespaces;
 import org.apache.camel.converter.jaxb.JaxbDataFormat;
 import org.apache.camel.example.server.model.IncrementRequest;
-import org.apache.camel.example.server.model.IncrementResponse;
+import org.springframework.stereotype.Component;
 
+@Component
 public class IncrementRoute extends RouteBuilder {
 
     @Override
     public void configure() throws Exception {
         JaxbDataFormat jaxb = new JaxbDataFormat(IncrementRequest.class.getPackage().getName());
         
+        Namespaces ns = new Namespaces("inc", "http://camel.apache.org/example/increment");
+        
         from("spring-ws:rootqname:{http://camel.apache.org/example/increment}incrementRequest?endpointMapping=#endpointMapping")
+            .onCompletion().modeBeforeConsumer().onCompleteOnly().to("bean:incrementResponseProcessor").end()
+            .onException(Throwable.class).handled(true).maximumRedeliveries(0).to("bean:exceptionHandler").end()
+            .setHeader("input-bla").xpath("//inc:input/text()", ns)
             .unmarshal(jaxb)
-            .process(new IncrementProcessor())
+            .choice()
+            	.when(xpath("$in:input-bla > '100'")).throwException(new RuntimeException("Exceeded value"))
+            .otherwise()
+            	.to("bean:incrementTransformer")
+            	.to("bean:incrementProcessor")
+            .end()
             .marshal(jaxb);
-    }
-    
-    private static final class IncrementProcessor implements Processor {
-        public void process(Exchange exchange) throws Exception {
-            IncrementRequest request = exchange.getIn().getBody(IncrementRequest.class);
-            IncrementResponse response = new IncrementResponse();
-            int result = request.getInput() + 1; // increment input value
-            response.setResult(result); 
-            exchange.getOut().setBody(response);
-        }
     }
    
 }
